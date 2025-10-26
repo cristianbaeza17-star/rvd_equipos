@@ -4,9 +4,11 @@ import type { User, GameData } from '../types';
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
 
+export const isSupabaseConfigured = !!(supabaseUrl && supabaseAnonKey);
+
 // Inicializamos el cliente de forma condicional.
 let supabase: SupabaseClient | null = null;
-if (supabaseUrl && supabaseAnonKey) {
+if (isSupabaseConfigured) {
     supabase = createClient(supabaseUrl, supabaseAnonKey);
 } else {
     console.warn("Advertencia: Las variables de entorno de Supabase no están configuradas. La autenticación y el guardado de datos no funcionarán.");
@@ -88,6 +90,17 @@ export const apiService = {
     },
 
     async saveGameData(userId: string, sessionData: GameData[]): Promise<void> {
+        if (!isSupabaseConfigured) {
+            try {
+                const existingData: GameData[] = JSON.parse(localStorage.getItem('rvd-game-data') || '[]');
+                const newData = [...existingData, ...sessionData];
+                localStorage.setItem('rvd-game-data', JSON.stringify(newData));
+            } catch (e) {
+                console.error("Error al guardar en almacenamiento local:", e);
+            }
+            return;
+        }
+        
         const client = getClient();
         const dataToInsert = sessionData.map(item => ({
             user_id: userId,
@@ -106,6 +119,17 @@ export const apiService = {
     },
     
     async getGameData(userId: string): Promise<GameData[]> {
+        if (!isSupabaseConfigured) {
+            try {
+                const data: GameData[] = JSON.parse(localStorage.getItem('rvd-game-data') || '[]');
+                // Ordenar por ID (timestamp) descendente para simular el comportamiento de la API
+                return data.sort((a, b) => b.id - a.id);
+            } catch (e) {
+                console.error("Error al leer del almacenamiento local:", e);
+                return [];
+            }
+        }
+
          const client = getClient();
          const { data, error } = await client
             .from('game_data')

@@ -1,15 +1,21 @@
 import React, { createContext, useState, useContext, useEffect, ReactNode } from 'react';
-import { apiService } from '../services/apiService';
+import { apiService, isSupabaseConfigured } from '../services/apiService';
 import type { User, AuthContextType } from '../types';
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{children: ReactNode}> = ({ children }) => {
     const [currentUser, setCurrentUser] = useState<User | null>(null);
-    const [loading, setLoading] = useState(true); // Empieza en true hasta que sepamos el estado
+    const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
     useEffect(() => {
+        if (!isSupabaseConfigured) {
+            // En modo offline, no hay estado de autenticación que verificar al inicio.
+            setLoading(false);
+            return;
+        }
+
         // onAuthStateChange se dispara inmediatamente con la sesión actual al cargar
         // y luego escucha los cambios. Es la única fuente de verdad que necesitamos.
         const authListener = apiService.onAuthStateChange((user) => {
@@ -21,9 +27,9 @@ export const AuthProvider: React.FC<{children: ReactNode}> = ({ children }) => {
         return () => {
             // FIX: The return type from apiService.onAuthStateChange is inconsistent.
             // This type guard handles both possible shapes to safely unsubscribe.
-            if ('subscription' in authListener) {
+            if (authListener && 'subscription' in authListener) {
                 authListener.subscription?.unsubscribe();
-            } else if ('data' in authListener) {
+            } else if (authListener && 'data' in authListener) {
                 authListener.data.subscription?.unsubscribe();
             }
         };
@@ -32,33 +38,66 @@ export const AuthProvider: React.FC<{children: ReactNode}> = ({ children }) => {
     const login = async (username: string, password: string) => {
         setLoading(true);
         setError(null);
+
+        if (!isSupabaseConfigured) {
+            // Simulación de login para modo offline
+            if (username.trim()) {
+                setCurrentUser({ id: 'local-user', username });
+            } else {
+                setError("El nombre de usuario no puede estar vacío.");
+            }
+            setLoading(false);
+            return;
+        }
+
         try {
-            // El estado del usuario se actualizará automáticamente por el listener onAuthStateChange
+            // El estado del usuario se actualizará automáticamente por el listener onAuthStateChange,
+            // que también pondrá setLoading(false) en caso de éxito.
             await apiService.login(username, password);
         } catch (err: any) {
             setError(err.message);
+            setLoading(false); // Es importante resetear el estado de carga en caso de error.
             throw err; // Re-lanzamos para que el componente Auth pueda manejarlo si es necesario
-        } finally {
-            // No ponemos setLoading(false) aquí, ya que el listener lo hará
         }
     };
     
     const register = async (username: string, password: string) => {
         setLoading(true);
         setError(null);
+
+        if (!isSupabaseConfigured) {
+            // Simulación de registro para modo offline
+            if (username.trim()) {
+                setCurrentUser({ id: 'local-user', username });
+            } else {
+                setError("El nombre de usuario no puede estar vacío.");
+            }
+            setLoading(false);
+            return;
+        }
+        
         try {
-            // El estado del usuario se actualizará automáticamente por el listener onAuthStateChange
+             // El estado del usuario se actualizará automáticamente por el listener onAuthStateChange,
+            // que también pondrá setLoading(false) en caso de éxito.
             await apiService.register(username, password);
         } catch (err: any)
  {
             setError(err.message);
+            setLoading(false); // Es importante resetear el estado de carga en caso de error.
             throw err;
-        } finally {
-             // No ponemos setLoading(false) aquí, ya que el listener lo hará
         }
     };
 
     const logout = async () => {
+        if (!isSupabaseConfigured) {
+            setCurrentUser(null);
+            try {
+                localStorage.removeItem('rvd-game-data');
+            } catch (e) {
+                console.error("Error al limpiar almacenamiento local:", e);
+            }
+            return;
+        }
         await apiService.logout();
         // El estado del usuario se actualizará a null automáticamente por el listener
         setCurrentUser(null); 
@@ -69,13 +108,13 @@ export const AuthProvider: React.FC<{children: ReactNode}> = ({ children }) => {
         login,
         register,
         logout,
-        loading, // ahora es loading, no loading: loading
+        loading,
         error
     };
 
     return (
         <AuthContext.Provider value={value}>
-            {!loading && children}
+            {children}
         </AuthContext.Provider>
     );
 };
