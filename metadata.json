@@ -1,0 +1,5 @@
+{
+  "name": "RVD Entrenamientos - Anticipación de Trayectoria",
+  "description": "Una aplicación web de React para entrenamiento visual deportivo especializado en la anticipación de trayectorias, con seguimiento del progreso y asesoría profesional impulsada por IA.",
+  "requestFramePermissions": []
+}
