@@ -1,30 +1,33 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import type { User, GameData } from '../types';
 
-// Fix: Augment the global ImportMeta interface to make TypeScript aware of Vite's environment variables.
-declare global {
-    interface ImportMeta {
-        readonly env: {
-            readonly VITE_SUPABASE_URL: string;
-            readonly VITE_SUPABASE_ANON_KEY: string;
-        }
+const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
+
+// Inicializamos el cliente de forma condicional.
+let supabase: SupabaseClient | null = null;
+if (supabaseUrl && supabaseAnonKey) {
+    supabase = createClient(supabaseUrl, supabaseAnonKey);
+} else {
+    console.warn("Advertencia: Las variables de entorno de Supabase no están configuradas. La autenticación y el guardado de datos no funcionarán.");
+}
+
+const getClient = (): SupabaseClient => {
+    if (!supabase) {
+        throw new Error("La conexión con la base de datos no está configurada. Por favor, contacta al administrador.");
     }
+    return supabase;
 }
-
-// Se leen las variables de entorno inyectadas por Vercel (o desde un archivo .env local)
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-
-if (!supabaseUrl || !supabaseAnonKey) {
-    throw new Error("Supabase URL and Anon Key must be provided in environment variables (VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY).");
-}
-
-// Inicializamos el cliente de Supabase una sola vez
-const supabase: SupabaseClient = createClient(supabaseUrl, supabaseAnonKey);
 
 export const apiService = {
-    // Escucha cambios en el estado de autenticación (login, logout)
     onAuthStateChange(callback: (user: User | null) => void) {
+        if (!supabase) {
+            // Si Supabase no está configurado, no podemos escuchar cambios.
+            // Llamamos al callback con null para que la app no se quede cargando.
+            callback(null);
+            return { data: { subscription: { unsubscribe: () => {} } } };
+        }
+        
         const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
             const user = session?.user ? { id: session.user.id, username: session.user.email! } : null;
             callback(user);
@@ -33,8 +36,9 @@ export const apiService = {
     },
 
     async register(username: string, password: string): Promise<User> {
-        const { data, error } = await supabase.auth.signUp({
-            email: username, // Supabase usa email como identificador principal
+        const client = getClient();
+        const { data, error } = await client.auth.signUp({
+            email: username,
             password: password,
         });
 
@@ -49,7 +53,8 @@ export const apiService = {
     },
 
     async login(username: string, password: string): Promise<User> {
-        const { data, error } = await supabase.auth.signInWithPassword({
+        const client = getClient();
+        const { data, error } = await client.auth.signInWithPassword({
             email: username,
             password: password,
         });
@@ -65,14 +70,17 @@ export const apiService = {
     },
     
     async logout() {
-        const { error } = await supabase.auth.signOut();
+        const client = supabase; // No usar getClient para no lanzar error
+        if (!client) return;
+        const { error } = await client.auth.signOut();
         if (error) {
             console.error('Error logging out:', error);
         }
     },
 
     async getCurrentUser(): Promise<User | null> {
-        const { data: { session } } = await supabase.auth.getSession();
+        const client = getClient();
+        const { data: { session } } = await client.auth.getSession();
         if (!session?.user) {
             return null;
         }
@@ -80,6 +88,7 @@ export const apiService = {
     },
 
     async saveGameData(userId: string, sessionData: GameData[]): Promise<void> {
+        const client = getClient();
         const dataToInsert = sessionData.map(item => ({
             user_id: userId,
             fecha: new Date(item.id).toISOString(),
@@ -88,7 +97,7 @@ export const apiService = {
             precision: item.precision
         }));
 
-        const { error } = await supabase.from('game_data').insert(dataToInsert);
+        const { error } = await client.from('game_data').insert(dataToInsert);
 
         if (error) {
             console.error('Error saving game data:', error);
@@ -97,7 +106,8 @@ export const apiService = {
     },
     
     async getGameData(userId: string): Promise<GameData[]> {
-         const { data, error } = await supabase
+         const client = getClient();
+         const { data, error } = await client
             .from('game_data')
             .select('*')
             .eq('user_id', userId)

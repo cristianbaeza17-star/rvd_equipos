@@ -6,43 +6,40 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{children: ReactNode}> = ({ children }) => {
     const [currentUser, setCurrentUser] = useState<User | null>(null);
-    const [loading, setLoading] = useState(true);
+    const [loading, setLoading] = useState(true); // Empieza en true hasta que sepamos el estado
     const [error, setError] = useState<string | null>(null);
 
     useEffect(() => {
-        // Usamos el método onAuthStateChange de Supabase para saber si hay un usuario
-        // logueado al cargar la app y para escuchar cambios de sesión en tiempo real.
-        const checkUser = async () => {
-            const user = await apiService.getCurrentUser();
-            setCurrentUser(user);
-            setLoading(false);
-        };
-        
-        checkUser();
-
+        // onAuthStateChange se dispara inmediatamente con la sesión actual al cargar
+        // y luego escucha los cambios. Es la única fuente de verdad que necesitamos.
         const authListener = apiService.onAuthStateChange((user) => {
             setCurrentUser(user);
-            // Si el listener se activa, significa que la carga inicial ya terminó.
-            if (loading) setLoading(false);
+            setLoading(false); // Una vez que tenemos una respuesta (user o null), la carga ha terminado.
         });
 
         // Limpiamos el listener cuando el componente se desmonta
         return () => {
-            authListener.subscription?.unsubscribe();
+            // FIX: The return type from apiService.onAuthStateChange is inconsistent.
+            // This type guard handles both possible shapes to safely unsubscribe.
+            if ('subscription' in authListener) {
+                authListener.subscription?.unsubscribe();
+            } else if ('data' in authListener) {
+                authListener.data.subscription?.unsubscribe();
+            }
         };
-    }, [loading]);
+    }, []);
 
     const login = async (username: string, password: string) => {
         setLoading(true);
         setError(null);
         try {
-            const user = await apiService.login(username, password);
-            setCurrentUser(user);
+            // El estado del usuario se actualizará automáticamente por el listener onAuthStateChange
+            await apiService.login(username, password);
         } catch (err: any) {
             setError(err.message);
-            throw err;
+            throw err; // Re-lanzamos para que el componente Auth pueda manejarlo si es necesario
         } finally {
-            setLoading(false);
+            // No ponemos setLoading(false) aquí, ya que el listener lo hará
         }
     };
     
@@ -50,19 +47,21 @@ export const AuthProvider: React.FC<{children: ReactNode}> = ({ children }) => {
         setLoading(true);
         setError(null);
         try {
-            // El login se maneja automáticamente por el onAuthStateChange
+            // El estado del usuario se actualizará automáticamente por el listener onAuthStateChange
             await apiService.register(username, password);
-        } catch (err: any) {
+        } catch (err: any)
+ {
             setError(err.message);
             throw err;
         } finally {
-            setLoading(false);
+             // No ponemos setLoading(false) aquí, ya que el listener lo hará
         }
     };
 
     const logout = async () => {
         await apiService.logout();
-        setCurrentUser(null);
+        // El estado del usuario se actualizará a null automáticamente por el listener
+        setCurrentUser(null); 
     };
 
     const value = {
@@ -70,7 +69,7 @@ export const AuthProvider: React.FC<{children: ReactNode}> = ({ children }) => {
         login,
         register,
         logout,
-        loading: loading,
+        loading, // ahora es loading, no loading: loading
         error
     };
 
